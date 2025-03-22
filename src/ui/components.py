@@ -156,7 +156,7 @@ def render_sidebar(processing):
         
         # Project info
         st.markdown("""
-        <div class="footer" style="font-weight: bold; color: white;">
+        <div class="footer" style="font-weight: bold; color: black;">
             <p>Developed by: Uday Kiran Dasari</p>
         </div>
         """, unsafe_allow_html=True)
