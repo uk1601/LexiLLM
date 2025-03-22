@@ -1,0 +1,12 @@
+[theme]
+primaryColor = "#1E88E5"  # Blue
+backgroundColor = "#F5F7F9"  # Light gray
+secondaryBackgroundColor = "#E0E0E0"  # Lighter gray
+textColor = "#262730"  # Dark text
+
+[server]
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false

@@ -1,0 +1,22 @@
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.5
+openai>=1.10.0
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+pytest>=7.0.0
+
+# UI dependencies
+streamlit>=1.27.0
+
+# For managing datetime operations
+pytz>=2023.3
+
+# For handling file operations
+pathlib>=1.0.1
+
+# For storing user profiles
+pyyaml>=6.0
+
+# Add any other dependencies your project needs

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Background Circle -->
+  <circle cx="100" cy="100" r="90" fill="#f2f7ff" stroke="#4a89dc" stroke-width="4"/>
+  
+  <!-- Brain Icon -->
+  <g transform="translate(50, 45) scale(0.5)">
+    <path d="M128,80a48,48,0,1,0-48,48h96a24,24,0,0,0,0-48Z" fill="none" stroke="#4a89dc" stroke-linecap="round" stroke-linejoin="round" stroke-width="12"/>
+    <path d="M176,128H80a48,48,0,0,1,0-96,48,48,0,0,1,41.3,23.4" fill="none" stroke="#4a89dc" stroke-linecap="round" stroke-linejoin="round" stroke-width="12"/>
+    <path d="M176,80h16a16,16,0,0,1,0,32H176" fill="none" stroke="#4a89dc" stroke-linecap="round" stroke-linejoin="round" stroke-width="12"/>
+    <path d="M80,128v16a16,16,0,0,0,16,16h96a24,24,0,0,0,24-24V128" fill="none" stroke="#4a89dc" stroke-linecap="round" stroke-linejoin="round" stroke-width="12"/>
+    <path d="M80,176v24M112,152v48M144,176v24M176,152v48" fill="none" stroke="#4a89dc" stroke-linecap="round" stroke-linejoin="round" stroke-width="12"/>
+    <path d="M32,80V48M64,32V64M24,56H56M160,40V56M136,24V48M128,32h48" fill="none" stroke="#4a89dc" stroke-linecap="round" stroke-linejoin="round" stroke-width="8"/>
+  </g>
+  
+  <!-- Text -->
+  <text x="100" y="160" font-family="Arial, sans-serif" font-weight="bold" font-size="24" text-anchor="middle" fill="#4a89dc">LexiLLM</text>
+</svg>
