@@ -107,6 +107,9 @@ class LexiLLM:
             # Keep track of the current intent
             self.current_intent = None
             
+            # Track if the conversation is active (for main loop control)
+            self.conversation_active = True
+            
             logger.info(f"LexiLLM initialized successfully with session ID: {session_id}")
         except Exception as e:
             logger.critical(f"Failed to initialize LexiLLM: {str(e)}")
@@ -165,6 +168,8 @@ class LexiLLM:
                 self.profile_manager.save_profile(self.user_profile)
                 # If the user wants to end, call end_conversation and return the closing message
                 self.conversation_manager.end_conversation()
+                # Mark conversation as inactive
+                self.conversation_active = False
                 return self.response_generator.end_conversation(
                     self.conversation_manager.chat_history, 
                     self.user_profile
@@ -243,16 +248,21 @@ class LexiLLM:
                     # Resume the pending query
                     self.conversation_manager.set_processing()
                     
-                    # Generate a resume message
-                    resume_msg = f"Thanks for providing that information. Now, let me answer your question about {pending_query['topic']}."
+                    # Check if the user's message is a simple confirmation
+                    is_simple_confirmation = is_confirmation(message) and len(message.split()) <= 3
                     
-                    # Generate the actual response
+                    # Generate a resume message based on the original pending topic, not the confirmation message
+                    topic = pending_query["topic"]
+                    logger.debug(f"Resuming with original topic: {topic}")
+                    resume_msg = f"Thanks for providing that information. Now, let me answer your question about {topic}."
+                    
+                    # Generate the actual response using the pending query's message, not the confirmation
                     response = self.response_generator.generate_response(
                         pending_query["message"],
                         pending_query["intent"],
                         self.conversation_manager.chat_history,
                         self.user_profile,
-                        pending_query["topic"]
+                        pending_query["topic"]  # Use the original topic
                     )
                     
                     # Add complete response to history
@@ -407,6 +417,8 @@ class LexiLLM:
                 self.profile_manager.save_profile(self.user_profile)
                 # If user wants to end, stream the closing message
                 self.conversation_manager.end_conversation()
+                # Mark conversation as inactive
+                self.conversation_active = False
                 
                 # Generate the end conversation message and update history
                 logger.debug("Generating end conversation streaming response")
@@ -504,14 +516,21 @@ class LexiLLM:
                     # Resume the pending query
                     self.conversation_manager.set_processing()
                     
-                    # Generate the streaming response
+                    # Check if the user's message is a simple confirmation
+                    is_simple_confirmation = is_confirmation(message) and len(message.split()) <= 3
+                    
+                    # Use original topic from pending query, not the confirmation message
+                    topic = pending_query["topic"]
+                    logger.debug(f"Streaming response for original topic: {topic}")
+                    
+                    # Generate the streaming response using the original message
                     complete_response = ""
                     for chunk in self.response_generator.generate_response_streaming(
-                        pending_query["message"],
+                        pending_query["message"],  # Use the original query, not the confirmation
                         pending_query["intent"],
                         self.conversation_manager.chat_history,
                         self.user_profile,
-                        pending_query["topic"]
+                        pending_query["topic"]  # Use the original topic
                     ):
                         complete_response += chunk
                         yield chunk
@@ -707,3 +726,22 @@ class LexiLLM:
             self.profile_manager.save_profile(self.user_profile)
         except Exception as e:
             logger.error(f"Error saving user profile: {str(e)}")
+    
+    def is_conversation_active(self) -> bool:
+        """
+        Check if the conversation is still active.
+        
+        Returns:
+            Boolean indicating if the conversation is active
+        """
+        return self.conversation_active
+    
+    def set_conversation_active(self, active: bool) -> None:
+        """
+        Set the conversation active state.
+        
+        Args:
+            active: Boolean indicating if the conversation is active
+        """
+        logger.debug(f"Setting conversation active: {active}")
+        self.conversation_active = active

@@ -152,7 +152,7 @@ class InfoCollector:
             logger.error(f"Error generating info collection message: {str(e)}")
             # Fallback to a generic message
             name_prefix = ""
-            if self.user_profile.name.value:
+            if self.user_profile.name and self.user_profile.name.value:
                 name_prefix = f"{self.user_profile.name.value}, "
             return f"{name_prefix}could you tell me about your {info_type.replace('_', ' ')}? This helps me provide more relevant information."
     
@@ -230,9 +230,9 @@ class InfoCollector:
                     self.conversation_manager.complete_onboarding()
                 
                 # Generate personalized welcome
-                name = self.user_profile.name.value or "there"
-                tech_level = self.user_profile.technical_level.value or "intermediate"
-                interest = self.user_profile.interest_area.value or "research"
+                name = self.user_profile.get_attribute_value("name") or "there"
+                tech_level = self.user_profile.get_attribute_value("technical_level") or "intermediate"
+                interest = self.user_profile.get_attribute_value("interest_area") or "research"
                 
                 welcome = f"Thanks for sharing that information, {name}! "
                 welcome += f"I'll tailor my responses to your {tech_level} level and focus on {interest}. "
@@ -247,11 +247,31 @@ class InfoCollector:
                 # If we have a conversation manager and there's a pending query, resume it
                 if self.conversation_manager and self.conversation_manager.get_pending_query():
                     pending = self.conversation_manager.get_pending_query()
-                    # Generate a resume message
+                    
+                    # Generate a resume message - Don't mention the original query directly
+                    # to avoid interpreting "yes"/"no" as topics
                     name_prefix = ""
-                    if self.user_profile.name.value:
-                        name_prefix = f"{self.user_profile.name.value}, "
-                    resume_msg = f"Thanks for providing that information. Now, let me answer your question about {pending['topic']} at a {self.user_profile.get_attribute_value('technical_level') or 'beginner'} level of detail."
+                    if self.user_profile.get_attribute_value("name"):
+                        name_prefix = f"{self.user_profile.get_attribute_value('name')}, "
+                        
+                    # Get the technical level and other relevant attributes
+                    technical_level = self.user_profile.get_attribute_value("technical_level") or "beginner"
+                    depth_preference = self.user_profile.get_attribute_value("depth_preference") or "standard"
+                    
+                    # Log what we're doing
+                    logger.info(f"Resuming pending query about '{pending['topic']}' with technical_level={technical_level}, depth_preference={depth_preference}")
+                    
+                    # Construct a message acknowledging the completion of information collection
+                    # and indicating we're now addressing their original query
+                    resume_msg = f"Thanks for providing that information. "
+                    resume_msg += f"Now, let me answer your question about {pending['topic']} "
+                    
+                    # Use both technical_level and depth_preference if depth is specified
+                    if depth_preference != "standard":
+                        resume_msg += f"with {depth_preference} technical details at a {technical_level} level."
+                    else:
+                        resume_msg += f"at a {technical_level} level of detail."
+                    
                     return resume_msg
                 
                 # Otherwise, just return None to indicate completion
@@ -280,6 +300,12 @@ class InfoCollector:
             List of tuples (attribute_name, value) of information that was extracted
         """
         try:
+            # Skip extraction for very short messages like "yes" or "no"
+            # These are likely confirmation responses and not useful for extraction
+            if len(message.strip()) <= 5:
+                logger.debug(f"Skipping extraction for short message: '{message}'")
+                return []
+                
             logger.debug("Attempting to extract implicit user information from message")
             updated_attrs = self.profile_manager.update_profile_from_message(self.user_profile, message)
             

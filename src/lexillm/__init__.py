@@ -1,11 +1,7 @@
 """
-LexiLLM: A specialized assistant for Large Language Models
-Author: Uday Kiran Dasari
-Northeastern University - Prompt Engineering
-Spring 2025
+LexiLLM: A specialized chatbot for LLM-related topics
 """
 
-from .bot import LexiLLM
-from .schemas import IntentClassifier, UserInfo
+from .core.lexillm import LexiLLM
 
-__version__ = "1.0.0"
+__all__ = ["LexiLLM"]

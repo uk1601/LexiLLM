@@ -34,6 +34,12 @@ class ResponseGenerator:
         """
         self.llm = llm
         self.response_templates = create_templates()
+        # Define the internal category labels that should be removed from responses
+        self.internal_labels = [
+            "Implementation", "News & Trends", "Fundamentals", 
+            "Comparison", "LLM_FUNDAMENTALS", "LLM_IMPLEMENTATION", 
+            "LLM_COMPARISON", "LLM_NEWS"
+        ]
         logger.info("Response generator initialized")
     
     def generate_response(self, query: str, intent: str, chat_history, user_profile, 
@@ -68,30 +74,61 @@ class ResponseGenerator:
                 chain = template | self.llm | StrOutputParser()
                 
                 # Prepare variables for the prompt, using profile information
-                variables = self._prepare_prompt_variables(query, user_profile, specific_topic)
+                variables = self._prepare_prompt_variables(query, user_profile, chat_history, specific_topic)
                 
                 # Generate response
                 response = chain.invoke(variables)
                 logger.debug(f"Generated response for {intent}")
             
-            return response
+            # Clean up the response to remove any internal category labels
+            cleaned_response = self._remove_internal_labels(response)
+            return cleaned_response
         except Exception as e:
             error_msg = f"Error generating response: {str(e)}"
             logger.error(error_msg)
             raise ResponseGenerationError(error_msg, intent=intent)
     
-    def _prepare_prompt_variables(self, query: str, user_profile, specific_topic: Optional[str] = None) -> Dict[str, Any]:
+    def _remove_internal_labels(self, response: str) -> str:
+        """
+        Remove any internal category labels from the beginning of a response.
+        
+        Args:
+            response: The generated response
+            
+        Returns:
+            Response with internal labels removed
+        """
+        # Check for and remove any internal labels at the beginning of the response
+        response_text = response.strip()
+        
+        for label in self.internal_labels:
+            if response_text.startswith(label):
+                # Remove the label from the beginning of the response
+                response_text = response_text[len(label):].strip()
+                logger.debug(f"Removed internal label '{label}' from response")
+        
+        return response_text
+    
+    def _prepare_prompt_variables(self, query: str, user_profile, chat_history, specific_topic: Optional[str] = None) -> Dict[str, Any]:
         """
         Prepare variables for the prompt template.
         
         Args:
             query: The user's message
             user_profile: User profile information
+            chat_history: Conversation history
             specific_topic: Optional specific topic to focus on
             
         Returns:
             Dictionary of variables for the prompt
         """
+        # Use specific_topic parameter if provided, otherwise default to query
+        # This helps preserve the original topic when answering after collecting information
+        actual_topic = specific_topic if specific_topic else query.strip()
+        
+        # Log the actual topic being used
+        logger.debug(f"Using specific topic for response: {actual_topic}")
+        
         # Get default values from configuration
         variables = {
             "query": query,
@@ -103,17 +140,20 @@ class ResponseGenerator:
                                     PROFILE_CONFIG["default_comparison_criterion"]),
             "interest_area": (user_profile.get_attribute_value("interest_area") or 
                              PROFILE_CONFIG["default_interest_area"]),
-            "specific_topic": specific_topic or query.strip()
+            "specific_topic": actual_topic
         }
         
         # Add chat history if available
-        if hasattr(self, 'chat_history') and hasattr(self.chat_history, 'messages'):
-            variables["chat_history"] = self.chat_history.messages
+        if chat_history and hasattr(chat_history, 'messages'):
+            variables["chat_history"] = chat_history.messages
         
         # If we know the user's name, include it in the prompt
         name = user_profile.get_attribute_value("name")
         if name:
             variables["name"] = name
+            
+        # Log the variables being used
+        logger.debug(f"Using variables for response: technical_level={variables['technical_level']}, topic={variables['specific_topic']}")
             
         return variables
     
@@ -138,6 +178,10 @@ class ResponseGenerator:
             # Complete response to store at the end
             complete_response = ""
             
+            # Flag to track if this is the first chunk (to remove labels)
+            is_first_chunk = True
+            accumulated_chunk = ""
+            
             # Select the appropriate template based on intent
             if intent == "UNKNOWN":
                 template = self.response_templates["FALLBACK"]
@@ -152,8 +196,22 @@ class ResponseGenerator:
                 }):
                     if isinstance(chunk, AIMessageChunk):
                         chunk_text = chunk.content
-                        complete_response += chunk_text
-                        yield chunk_text
+                        
+                        if is_first_chunk:
+                            # Accumulate text until we have enough to check for labels
+                            accumulated_chunk += chunk_text
+                            
+                            # Check if we have enough text to potentially contain a label
+                            if len(accumulated_chunk) > 20:  # Arbitrary length that's likely long enough
+                                # Process the accumulated chunk to remove labels
+                                cleaned_chunk = self._remove_internal_labels(accumulated_chunk)
+                                complete_response += cleaned_chunk
+                                yield cleaned_chunk
+                                is_first_chunk = False
+                                accumulated_chunk = ""
+                        else:
+                            complete_response += chunk_text
+                            yield chunk_text
                     
             else:
                 template = self.response_templates[intent]
@@ -162,18 +220,34 @@ class ResponseGenerator:
                 chain = template | self.llm
                 
                 # Prepare variables for the prompt, using profile information
-                variables = self._prepare_prompt_variables(query, user_profile, specific_topic)
-                
-                # If chat_history is available, add it to the variables
-                if chat_history and hasattr(chat_history, 'messages'):
-                    variables["chat_history"] = chat_history.messages
+                variables = self._prepare_prompt_variables(query, user_profile, chat_history, specific_topic)
                 
                 # Stream the response
                 for chunk in chain.stream(variables):
                     if isinstance(chunk, AIMessageChunk):
                         chunk_text = chunk.content
-                        complete_response += chunk_text
-                        yield chunk_text
+                        
+                        if is_first_chunk:
+                            # Accumulate text until we have enough to check for labels
+                            accumulated_chunk += chunk_text
+                            
+                            # Check if we have enough text to potentially contain a label
+                            if len(accumulated_chunk) > 20:  # Arbitrary length that's likely long enough
+                                # Process the accumulated chunk to remove labels
+                                cleaned_chunk = self._remove_internal_labels(accumulated_chunk)
+                                complete_response += cleaned_chunk
+                                yield cleaned_chunk
+                                is_first_chunk = False
+                                accumulated_chunk = ""
+                        else:
+                            complete_response += chunk_text
+                            yield chunk_text
+            
+            # If we still have accumulated text, process and yield it
+            if accumulated_chunk:
+                cleaned_chunk = self._remove_internal_labels(accumulated_chunk)
+                complete_response += cleaned_chunk
+                yield cleaned_chunk
             
             logger.debug(f"Finished streaming response for {intent}")
             return complete_response
@@ -203,7 +277,7 @@ class ResponseGenerator:
                 "query": query
             })
             logger.debug("Generated fallback message")
-            return response
+            return self._remove_internal_labels(response)
         except Exception as e:
             error_msg = f"Error generating fallback message: {str(e)}"
             logger.error(error_msg)
@@ -247,7 +321,7 @@ class ResponseGenerator:
                 
             response = chain.invoke(variables)
             logger.debug("Generated end conversation message")
-            return response
+            return self._remove_internal_labels(response)
         except Exception as e:
             error_msg = f"Error in end_conversation: {str(e)}"
             logger.error(error_msg)
@@ -286,12 +360,35 @@ class ResponseGenerator:
             # Stream the response
             complete_response = ""
             
+            # Flag to track if this is the first chunk (to remove labels)
+            is_first_chunk = True
+            accumulated_chunk = ""
+            
             for chunk in chain.stream(variables):
                 if isinstance(chunk, AIMessageChunk):
                     chunk_text = chunk.content
-                    complete_response += chunk_text
-                    logger.debug(f"Yielding chunk: {chunk_text[:20]}...")
-                    yield chunk_text
+                    
+                    if is_first_chunk:
+                        # Accumulate text until we have enough to check for labels
+                        accumulated_chunk += chunk_text
+                        
+                        # Check if we have enough text to potentially contain a label
+                        if len(accumulated_chunk) > 20:  # Arbitrary length that's likely long enough
+                            # Process the accumulated chunk to remove labels
+                            cleaned_chunk = self._remove_internal_labels(accumulated_chunk)
+                            complete_response += cleaned_chunk
+                            yield cleaned_chunk
+                            is_first_chunk = False
+                            accumulated_chunk = ""
+                    else:
+                        complete_response += chunk_text
+                        yield chunk_text
+            
+            # If we still have accumulated text, process and yield it
+            if accumulated_chunk:
+                cleaned_chunk = self._remove_internal_labels(accumulated_chunk)
+                complete_response += cleaned_chunk
+                yield cleaned_chunk
                     
             # If we didn't get a response, provide a default one
             if not complete_response.strip():
@@ -357,10 +454,16 @@ class ResponseGenerator:
         logger.debug(f"Generating resume topic message for: {last_topic}")
         
         technical_level = user_profile.get_attribute_value("technical_level") or PROFILE_CONFIG["default_technical_level"]
+        depth_preference = user_profile.get_attribute_value("depth_preference") or "standard"
         
         message = f"Thanks for providing that information. "
         message += f"Now, let me answer your question about {last_topic} "
-        message += f"at a {technical_level} level of detail."
+        
+        # Use both technical_level and depth_preference if available
+        if depth_preference != "standard":
+            message += f"with {depth_preference} technical details at a {technical_level} level."
+        else:
+            message += f"at a {technical_level} level of detail."
         
         logger.debug("Generated resume topic message")
         return message
