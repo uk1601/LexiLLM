@@ -67,10 +67,29 @@ class InfoCollector:
         if self.conversation_manager and self.conversation_manager.is_awaiting_confirmation():
             logger.debug("No collection opportunity: awaiting confirmation")
             return False, None
+        
+        # Don't interrupt active topic discussions (check conversation state)
+        if (self.conversation_manager and 
+            self.conversation_manager.get_current_state() in 
+            [ConversationStateEnum.PROCESSING.value, ConversationStateEnum.RESPONDING.value]):
+            logger.debug("No collection opportunity: user is in active topic discussion")
+            return False, None
+        
+        # Check if recent messages are part of a natural flow - don't interrupt follow-ups
+        if self.conversation_manager and len(self.conversation_manager.chat_history.messages) >= 4:
+            # Get most recent user message
+            recent_messages = self.conversation_manager.chat_history.messages[-4:]
+            recent_user_msgs = [msg.content for msg in recent_messages if msg.type == "human"]
             
-        # Get threshold values from configuration
-        interaction_threshold = PROFILE_CONFIG["interaction_threshold"]
-        collection_interval = PROFILE_CONFIG["collection_interval"]
+            # If recent message is very short (1-2 words), it's likely a follow-up or response
+            # to a question - not a good time to interrupt for information collection
+            if recent_user_msgs and len(recent_user_msgs[-1].split()) <= 2:
+                logger.debug("No collection opportunity: user is in the middle of a follow-up exchange")
+                return False, None
+            
+        # Get threshold values from configuration - increase thresholds
+        interaction_threshold = PROFILE_CONFIG.get("interaction_threshold", 4) + 2  # Increased threshold
+        collection_interval = PROFILE_CONFIG.get("collection_interval", 5) + 3  # Increased interval
         
         # Don't collect information too frequently
         if self.user_profile.interaction_count < interaction_threshold:
@@ -81,7 +100,24 @@ class InfoCollector:
         if self.user_profile.interaction_count % collection_interval != 0:
             logger.debug(f"No collection opportunity: not at collection interval ({self.user_profile.interaction_count})")
             return False, None
+        
+        # Only collect information during natural breaks in conversation
+        # Check if the conversation is at a good breaking point
+        if self.conversation_manager:
+            # If we've asked a question in the last response, wait for the answer first
+            last_bot_msg = ""
+            for msg in reversed(self.conversation_manager.chat_history.messages):
+                if msg.type == "ai":
+                    last_bot_msg = msg.content
+                    break
             
+            # If our last message ended with a question, skip collection for now
+            if last_bot_msg and ("?" in last_bot_msg[-30:] or 
+                               any(phrase in last_bot_msg[-50:].lower() for phrase in 
+                                  ["would you like", "could you", "can you", "what do you", "how about"])):
+                logger.debug("No collection opportunity: bot's last message ended with a question")
+                return False, None
+        
         # Check if there's an attribute we should collect
         next_attr = self.user_profile.get_next_attribute_to_collect()
         if next_attr:

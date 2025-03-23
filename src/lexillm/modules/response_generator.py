@@ -43,7 +43,7 @@ class ResponseGenerator:
         logger.info("Response generator initialized")
     
     def generate_response(self, query: str, intent: str, chat_history, user_profile, 
-                          specific_topic: Optional[str] = None) -> str:
+                          specific_topic: Optional[str] = None, matched_keywords: List[str] = None) -> str:
         """
         Generate a response based on intent and user information.
         
@@ -53,6 +53,7 @@ class ResponseGenerator:
             chat_history: Conversation history
             user_profile: User profile information
             specific_topic: Optional specific topic to focus on
+            matched_keywords: Keywords matched in the query
             
         Returns:
             A string response to the user
@@ -64,17 +65,24 @@ class ResponseGenerator:
             if intent == "UNKNOWN":
                 template = self.response_templates["FALLBACK"]
                 chain = template | self.llm | StrOutputParser()
-                response = chain.invoke({
+                
+                # Add matched keywords if available for better fallback suggestions
+                variables = {
                     "chat_history": chat_history.messages,
                     "query": query
-                })
+                }
+                
+                if matched_keywords:
+                    variables["matched_keywords"] = ", ".join(matched_keywords)
+                
+                response = chain.invoke(variables)
                 logger.debug("Generated fallback response")
             else:
                 template = self.response_templates[intent]
                 chain = template | self.llm | StrOutputParser()
                 
                 # Prepare variables for the prompt, using profile information
-                variables = self._prepare_prompt_variables(query, user_profile, chat_history, specific_topic)
+                variables = self._prepare_prompt_variables(query, user_profile, chat_history, specific_topic, matched_keywords)
                 
                 # Generate response
                 response = chain.invoke(variables)
@@ -101,15 +109,21 @@ class ResponseGenerator:
         # Check for and remove any internal labels at the beginning of the response
         response_text = response.strip()
         
+        # Always remove all known labels to avoid duplicate labels
         for label in self.internal_labels:
             if response_text.startswith(label):
                 # Remove the label from the beginning of the response
                 response_text = response_text[len(label):].strip()
                 logger.debug(f"Removed internal label '{label}' from response")
         
+        # Remove any newlines at the beginning of the response
+        response_text = response_text.lstrip("\n")
+        
         return response_text
     
-    def _prepare_prompt_variables(self, query: str, user_profile, chat_history, specific_topic: Optional[str] = None) -> Dict[str, Any]:
+    def _prepare_prompt_variables(self, query: str, user_profile, chat_history, 
+                                 specific_topic: Optional[str] = None,
+                                 matched_keywords: List[str] = None) -> Dict[str, Any]:
         """
         Prepare variables for the prompt template.
         
@@ -118,6 +132,7 @@ class ResponseGenerator:
             user_profile: User profile information
             chat_history: Conversation history
             specific_topic: Optional specific topic to focus on
+            matched_keywords: Keywords matched in the query
             
         Returns:
             Dictionary of variables for the prompt
@@ -143,6 +158,10 @@ class ResponseGenerator:
             "specific_topic": actual_topic
         }
         
+        # Add matched keywords if available
+        if matched_keywords:
+            variables["matched_keywords"] = ", ".join(matched_keywords)
+        
         # Add chat history if available
         if chat_history and hasattr(chat_history, 'messages'):
             variables["chat_history"] = chat_history.messages
@@ -157,8 +176,64 @@ class ResponseGenerator:
             
         return variables
     
+    def generate_dynamic_fallback(self, query: str, chat_history, related_topics: List[str] = None,
+                                  relevance_confidence: float = 0.0, technical_level: str = "",
+                                  user_name: Optional[str] = None, reasoning: str = "") -> str:
+        """
+        Generate a personalized fallback message using semantic understanding.
+        
+        Args:
+            query: The user's message
+            chat_history: Conversation history
+            related_topics: LLM topics that might be related to the query
+            relevance_confidence: Confidence score for domain relevance
+            technical_level: User's technical level if known
+            user_name: User's name if known
+            reasoning: Explanation of why the query was classified as off-topic
+            
+        Returns:
+            A personalized fallback response
+        """
+        try:
+            logger.debug(f"Generating dynamic fallback for query: {query[:50]}...")
+            template = self.response_templates["FALLBACK"]
+            chain = template | self.llm | StrOutputParser()
+            
+            # Prepare variables for a more personalized fallback
+            variables = {
+                "chat_history": chat_history.messages,
+                "query": query,
+                "related_topics": [] if related_topics is None else related_topics,
+                "relevance_confidence": relevance_confidence,
+                "technical_level": technical_level
+            }
+            
+            # Get suggested topics using the intent_manager if we have related topics
+            if related_topics:
+                logger.debug(f"Using related topics for fallback suggestions: {related_topics}")
+            
+            # Add user name if available for personalization
+            if user_name:
+                variables["user_name"] = user_name
+                logger.debug(f"Adding user name to fallback: {user_name}")
+            
+            # Try to generate a dynamic response using the template
+            response = chain.invoke(variables)
+            logger.debug("Generated dynamic fallback message")
+            return self._remove_internal_labels(response)
+        except Exception as e:
+            error_msg = f"Error generating dynamic fallback: {str(e)}"
+            logger.error(error_msg)
+            
+            # Fallback to a simpler message if we encounter an error
+            if user_name:
+                return f"I'm sorry {user_name}, I'm specialized in Large Language Models. Would you like to know about LLM architectures, prompt engineering, or model fine-tuning instead?"
+            else:
+                return "I'm specialized in Large Language Models. Would you like to know about LLM architectures, prompt engineering, or model fine-tuning instead?"
+    
     def generate_response_streaming(self, query: str, intent: str, chat_history, user_profile,
-                                   specific_topic: Optional[str] = None) -> Iterator[str]:
+                                   specific_topic: Optional[str] = None, 
+                                   matched_keywords: List[str] = None) -> Iterator[str]:
         """
         Generate a streaming response based on intent and user information.
         
@@ -168,6 +243,7 @@ class ResponseGenerator:
             chat_history: Conversation history
             user_profile: User profile information
             specific_topic: Optional specific topic to focus on
+            matched_keywords: Keywords matched in the query
             
         Returns:
             An iterator of response chunks
@@ -189,11 +265,18 @@ class ResponseGenerator:
                 # Create the chain without the output parser for streaming
                 chain = template | self.llm
                 
-                # Stream the response
-                for chunk in chain.stream({
+                # Add matched keywords if available for better fallback suggestions
+                variables = {
                     "chat_history": chat_history.messages,
                     "query": query
-                }):
+                }
+                
+                if matched_keywords:
+                    variables["matched_keywords"] = ", ".join(matched_keywords)
+                
+                # First chunk processing
+                # Stream the response
+                for chunk in chain.stream(variables):
                     if isinstance(chunk, AIMessageChunk):
                         chunk_text = chunk.content
                         
@@ -220,8 +303,9 @@ class ResponseGenerator:
                 chain = template | self.llm
                 
                 # Prepare variables for the prompt, using profile information
-                variables = self._prepare_prompt_variables(query, user_profile, chat_history, specific_topic)
+                variables = self._prepare_prompt_variables(query, user_profile, chat_history, specific_topic, matched_keywords)
                 
+                # First chunk processing
                 # Stream the response
                 for chunk in chain.stream(variables):
                     if isinstance(chunk, AIMessageChunk):
@@ -257,13 +341,14 @@ class ResponseGenerator:
             yield error_msg
             return error_msg
     
-    def generate_fallback_message(self, query: str, chat_history) -> str:
+    def generate_fallback_message(self, query: str, chat_history, matched_keywords: List[str] = None) -> str:
         """
         Generate a fallback message for unrecognized intents.
         
         Args:
             query: The user's message
             chat_history: Conversation history
+            matched_keywords: Keywords matched in the query
             
         Returns:
             A fallback response
@@ -272,10 +357,17 @@ class ResponseGenerator:
             logger.debug(f"Generating fallback message for query: {query[:50]}...")
             template = self.response_templates["FALLBACK"]
             chain = template | self.llm | StrOutputParser()
-            response = chain.invoke({
+            
+            variables = {
                 "chat_history": chat_history.messages,
                 "query": query
-            })
+            }
+            
+            # Add matched keywords if available for better fallback suggestions
+            if matched_keywords:
+                variables["matched_keywords"] = ", ".join(matched_keywords)
+                
+            response = chain.invoke(variables)
             logger.debug("Generated fallback message")
             return self._remove_internal_labels(response)
         except Exception as e:
@@ -283,19 +375,52 @@ class ResponseGenerator:
             logger.error(error_msg)
             return f"I'm having trouble understanding your question. Could you rephrase it or ask something about LLMs?"
     
-    def generate_fallback_message_streaming(self, query: str, chat_history) -> Iterator[str]:
+    def generate_fallback_message_streaming(self, query: str, chat_history, matched_keywords: List[str] = None) -> Iterator[str]:
         """
         Generate a streaming fallback message for unrecognized intents.
         
         Args:
             query: The user's message
             chat_history: Conversation history
+            matched_keywords: Keywords matched in the query
             
         Returns:
             An iterator of response chunks
         """
-        # Same as generate_response_streaming but specifically for fallbacks
-        return self.generate_response_streaming(query, "UNKNOWN", chat_history, None)
+        try:
+            logger.debug(f"Using dynamic fallback for query: {query[:50]}...")
+            
+            # We'll use a more flexible approach to determine the fallback type
+            query_lower = query.lower()
+            
+            # Build a context-aware fallback message
+            variables = {
+                "chat_history": chat_history.messages,
+                "query": query
+            }
+            
+            # Add matched keywords if available for better fallback suggestions
+            if matched_keywords:
+                variables["matched_keywords"] = ", ".join(matched_keywords)
+                logger.debug(f"Adding matched keywords to fallback: {matched_keywords}")
+                
+            # Use the standard fallback template with streaming
+            template = self.response_templates["FALLBACK"]
+            chain = template | self.llm
+            
+            complete_response = ""
+            for chunk in chain.stream(variables):
+                if isinstance(chunk, AIMessageChunk):
+                    chunk_text = chunk.content
+                    complete_response += chunk_text
+                    yield chunk_text
+            
+            return complete_response
+            
+        except Exception as e:
+            error_msg = f"Error generating streaming fallback message: {str(e)}"
+            logger.error(error_msg)
+            yield "I'm focused on helping with Large Language Model topics only. Could you ask something about LLMs instead?"
     
     def end_conversation(self, chat_history, user_profile) -> str:
         """

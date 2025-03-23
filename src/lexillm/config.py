@@ -74,7 +74,7 @@ LOGGING_CONFIG = {
 # Intent Classification Configuration
 INTENT_CONFIG = {
     # Intent classification
-    "unknown_confidence_threshold": float(os.environ.get("LEXILLM_UNKNOWN_CONFIDENCE_THRESHOLD", "0.3")),
+    "unknown_confidence_threshold": float(os.environ.get("LEXILLM_UNKNOWN_CONFIDENCE_THRESHOLD", "0.6")),  # Increased threshold,
     
     # Followup detection
     "followup_phrases": [
@@ -85,6 +85,30 @@ INTENT_CONFIG = {
         "what is", "what are", "why is", "why are",
         "where", "when", "who", "which"
     ],
+    
+    # LLM Domain Filter - Enhanced with more political terms
+    "non_llm_topics": [
+        "president", "trump", "biden", "politics", "election", "weather", 
+        "sports", "game", "movie", "actor", "celebrity", "singer", 
+        "song", "music", "history", "war", "country", "city", "travel",
+        "recipe", "food", "health", "disease", "medicine", "doctor",
+        "news", "economy", "market", "price", "buy", "sell",
+        "white house", "congress", "senate", "government", "politician",
+        "campaign", "vote", "democracy", "republican", "democrat",
+        "political party", "governor", "mayor", "administration", "policy",
+        "foreign policy", "domestic policy", "supreme court", "justice"
+    ],
+    
+    "llm_keywords": [
+        "llm", "language model", "gpt", "bert", "transformer", "embedding", 
+        "token", "prompt", "fine-tune", "vector", "attention", "nlp", 
+        "natural language", "ai model", "neural network", "machine learning",
+        "generative", "generation", "text generation", "chatgpt", "claude",
+        "llama", "mistral", "gemini", "bard", "rag", "retrieval"
+    ],
+    
+    # Higher threshold for stricter UNKNOWN detection
+    "force_fallback_confidence": float(os.environ.get("LEXILLM_FORCE_FALLBACK_CONFIDENCE", "0.95")),  # Increased from 0.8
 }
 
 # End Request Detection Configuration

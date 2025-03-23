@@ -1,160 +1,135 @@
-# LexiLLM: Large Language Model Assistant
+# LexiLLM: Your LLM Expert Assistant
 
-## Project Overview
-LexiLLM is a specialized chatbot designed to assist users with understanding and implementing Large Language Models (LLMs). This project was developed as part of the Prompt Engineering graduate course at Northeastern University.
+LexiLLM is a specialized chatbot designed to assist with understanding and implementing Large Language Models. It provides expert guidance on LLM fundamentals, implementation strategies, model comparisons, and the latest trends in the field.
+
+![LexiLLM Logo](assets/lexillm_logo.jpeg)
 
 ## Features
-- **LLM Fundamentals**: Explanations of core concepts and architectures
-- **Implementation Guidance**: Practical advice for building LLM applications
-- **Model Comparison**: Objective comparisons between different LLM options
-- **News & Trends**: Updates on recent developments in the field
-- **Streaming UI**: Web interface with real-time response generation
-- **Multi-platform Support**: Command-line and Streamlit web interface
-- **Modular Architecture**: Clearly separated components for maintainability
-- **Comprehensive User Profiles**: Advanced user information management with memory
-- **Natural Onboarding**: Progressive collection of user preferences
-- **Personalized Responses**: Tailored content based on user profile
 
-## Technical Implementation
-LexiLLM implements all required components from the assignment (see [complete technical documentation](documentation/complete_documentation.md) for details):
-- **Welcome Message**: Clear introduction with purpose statement
-- **Intent Recognition**: Classification for four distinct LLM-related topics
-- **User Input Collection**: Comprehensive profile management with technical level assessment
-- **Conditional Logic**: Conversation branching based on user expertise and needs
-- **Personalized Text Responses**: Content tailored to user profiles
-- **Professional Conversation Closure**: Polite ending with summary
-- **Robust Error Handling**: Graceful recovery from errors with helpful messages
-- **Helpful Fallback Messages**: Guidance when intent can't be determined
+- 🧠 **LLM Fundamentals**: Explanations of transformer architecture, embeddings, attention mechanisms, and core concepts
+- ⚙️ **Implementation Guidance**: Advice on fine-tuning, RAG, reducing hallucinations, and deployment
+- ⚖️ **Model Comparisons**: Objective analysis of different LLM models like GPT-4, Claude, and Llama
+- 📰 **News & Trends**: Updates on the latest research, applications, and developments
+- 👤 **Personalized Responses**: Information collection to tailor responses to your background and needs
+- 🔄 **Streaming Responses**: Real-time, token-by-token response generation
+- 💾 **User Profile Management**: Persistent user profiles across sessions
 
-## Modular Architecture
-LexiLLM features a modular architecture with clear separation of concerns:
+## Installation
 
-1. **LexiLLM Class (bot.py)**: Central orchestrator that coordinates modules
-2. **Intent Manager**: Handles intent classification and follow-up detection
-3. **Info Collector**: Manages user information collection and extraction
-4. **Response Generator**: Creates personalized responses
-5. **Conversation Manager**: Maintains conversation state and history
-6. **User Profile System**: Handles user data with confidence scoring
+### Prerequisites
+- Python 3.10+
+- OpenAI API key
 
-This architecture provides several key benefits:
-- **Improved Maintainability**: Each module has a clear responsibility
-- **Enhanced Testability**: Modules can be tested independently
-- **Better Code Organization**: Logical separation of concerns
-- **Reduced Complexity**: Main class focuses on orchestration
-- **Easier Extension**: New features can be added to specific modules
+### Setup
 
-## User Profile System
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/lexillm.git
+   cd lexillm
+   ```
 
-LexiLLM's user profile system:
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   ```
 
-- **Collects information naturally** throughout the conversation
-- **Maintains persistent memory** across sessions
-- **Provides personalized responses** based on user's technical level and interests
-- **Uses intelligent onboarding** to collect essential information
-- **Adapts to expertise levels** for more relevant explanations
-- **Learns from implicit information** shared during conversations
-- **Periodically updates user attributes** without disrupting conversation flow
-
-## Directory Structure
-```
-LexiLLM/
-├── README.md                      # Project overview
-├── documentation/                 # Detailed documentation
-│   └── complete_documentation.md  # Comprehensive technical documentation
-├── assets/                        # Static assets
-├── src/                           # Source code
-│   ├── lexillm/                   # Main package
-│   │   ├── __init__.py            # Package initialization
-│   │   ├── bot.py                 # Core bot implementation (orchestrator)
-│   │   ├── config.py              # Configuration settings
-│   │   ├── exceptions.py          # Custom exception classes
-│   │   ├── logger.py              # Logging configuration
-│   │   ├── schemas.py             # Data schemas using Pydantic
-│   │   ├── templates.py           # Prompt templates
-│   │   ├── user_profile.py        # User profile management
-│   │   ├── utils.py               # Utility functions
-│   │   └── modules/               # Modular components
-│   │       ├── __init__.py        # Module initialization
-│   │       ├── conversation_manager.py # Conversation state and history
-│   │       ├── conversation_state.py   # State enumeration and utilities
-│   │       ├── info_collector.py  # User information collection
-│   │       ├── intent_manager.py  # Intent classification
-│   │       └── response_generator.py # Response generation
-│   ├── ui/                        # UI Components
-│   │   ├── __init__.py            # UI package initialization
-│   │   ├── components.py          # UI component definitions
-│   │   ├── image_utils.py         # Image handling utilities
-│   │   ├── state.py               # Streamlit state management
-│   │   └── styling.py             # CSS styling for UI
-│   ├── main.py                    # CLI entry point
-│   └── ui_streamlit_enhanced.py   # Streamlit UI implementation
-├── user_profiles/                 # Storage for user profiles
-└── tests/                         # Unit and integration tests
-```
-
-## Installation and Usage
-
-1. Clone the repository
-2. Install dependencies:
+3. Install the dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Set up your OpenAI API key in a `.env` file:
+
+4. Create a `.env` file with your OpenAI API key:
    ```
    OPENAI_API_KEY=your_api_key_here
    ```
 
-## Running the Bot
-
-### Web Interface (Streamlit)
-
-The Streamlit interface provides an intuitive, web-based experience with streaming response generation:
-
-```bash
-# Run the UI
-./run_ui.sh
-```
+## Usage
 
 ### Command Line Interface
 
-You can also run the bot in a terminal:
+Run the CLI version:
 
 ```bash
 ./run.sh
 ```
 
-### Developer Mode
-
-For development work, you can install the package in editable mode:
+Or with streaming enabled:
 
 ```bash
-pip install -e .
+USE_STREAMING=true ./run.sh
 ```
+
+### Streamlit Web Interface
+
+Run the enhanced Streamlit UI:
+
+```bash
+./run_enhanced_ui.sh
+```
+
+### Example Interactions
+
+```
+LexiLLM: Welcome to LexiLLM! I'm your specialized assistant for Large Language Models. How can I help you today?
+
+You: How do transformer models work?
+
+LexiLLM: [Detailed explanation about transformer architecture...]
+```
+
+## Project Structure
+
+```
+LexiLLM/
+├── assets/               # Images and static files
+├── presentation/         # Project presentation materials
+├── src/                  # Source code
+│   ├── lexillm/          # Core LexiLLM package
+│   │   ├── core/         # Core implementation
+│   │   ├── modules/      # Functional modules
+│   │   └── ...           # Other components
+│   ├── ui/               # UI components
+│   ├── main.py           # CLI entry point
+│   └── ui_streamlit_enhanced.py  # Web UI entry point
+├── tests/                # Test suite
+├── user_profiles/        # Saved user profiles
+├── .env                  # Environment variables
+├── requirements.txt      # Dependencies
+└── run.sh, run_enhanced_ui.sh, run_tests.sh  # Helper scripts
+```
+
+## Technologies Used
+
+- **LangChain**: For LLM orchestration and chaining
+- **OpenAI API**: For GPT model access
+- **Streamlit**: For web interface
+- **Pydantic**: For data validation
+- **Python Dataclasses**: For structured data representation
+- **Dotenv**: For environment variable management
 
 ## Testing
 
-Run the comprehensive test suite using the provided script:
+Run the test suite:
 
 ```bash
 ./run_tests.sh
 ```
 
-The test suite includes:
-- Unit tests for individual modules
-- Integration tests for module interactions
-- End-to-end conversation flow tests
+## Future Improvements
 
-## Profile Management System
+- Expanding the knowledge base with more specialized LLM topics
+- Adding visualization tools for LLM concepts
+- Supporting more LLM providers beyond OpenAI
+- Implementing a memory system for longer conversations
+- Adding export functionality for conversation summaries
 
-The core of LexiLLM's personalization capabilities is its user profile system:
+## License
 
-- **ProfileAttribute**: Single piece of user information with confidence score
-- **UserProfile**: Comprehensive collection of user attributes
-- **UserProfileManager**: Handles persistence and updates
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-Profiles are automatically saved between sessions using unique session IDs, enabling continuous improvement of the user experience as the bot learns more about each user.
+## Contact
 
-## Author
-Uday Kiran Dasari  
-Northeastern University  
-Prompt Engineering - Spring 2025
+Uday Kiran Dasari - uday.kiran.dasari@example.com
+
+Northeastern University - Prompt Engineering - Spring 2025

@@ -117,16 +117,32 @@ class StreamingProcessor:
             # Reset state to idle
             self.conversation_manager.set_idle()
             
-            # Personalize the fallback message if we know the user's name
-            name = self.user_profile.get_attribute_value("name")
-            if name:
-                fallback_msg = f"I apologize, {name}, but I encountered an error while processing your message. Let's try again with a different question."
-            else:
-                fallback_msg = "I apologize, but I encountered an error while processing your message. Let's try again with a different question."
+            # Generate a fallback message
+            try:
+                # Try to use the streaming fallback generator first
+                for chunk in self.response_generator.generate_fallback_message_streaming(
+                    message, 
+                    self.conversation_manager.chat_history
+                ):
+                    yield chunk
+                return
+            except Exception as fallback_error:
+                logger.error(f"Error generating streaming fallback: {str(fallback_error)}")
                 
-            yield fallback_msg
-            # Also add to chat history
-            self.conversation_manager.add_ai_message(fallback_msg)
+                # Personalize the fallback message if we know the user's name
+                name = self.user_profile.get_attribute_value("name")
+                if name:
+                    fallback_msg = (f"I apologize, {name}, but I encountered an error while processing your message. "
+                                 "As a specialized LLM assistant, I can help with questions about language models, "
+                                 "embeddings, transformers, and other LLM topics. Would you like to ask about one of these areas?")
+                else:
+                    fallback_msg = ("I apologize, but I encountered an error while processing your message. "
+                                "As a specialized LLM assistant, I can help with questions about language models, "
+                                "embeddings, transformers, and other LLM topics. Would you like to ask about one of these areas?")
+                    
+                yield fallback_msg
+                # Also add to chat history
+                self.conversation_manager.add_ai_message(fallback_msg)
             
     def _is_direct_question(self, message: str) -> bool:
         """
@@ -341,101 +357,164 @@ class StreamingProcessor:
         Yields:
             Response chunks
         """
-        # Always try to extract implicit user information from the message
-        logger.debug("Extracting implicit user information for streaming response")
-        self.info_collector.extract_user_info_from_message(message)
-        
-        # Check if this is a follow-up to the previous topic
-        is_followup = self.intent_manager.is_followup_question(
-            message, 
-            self.conversation_manager.chat_history
-        )
-        
-        # Determine intent
-        if not is_followup or not self.current_intent:
-            logger.debug("Classifying new intent for streaming response")
-            # Classify the intent
-            intent_result = self.intent_manager.classify_intent(message)
-            intent = intent_result.get("intent", "UNKNOWN")
-            self.current_intent = intent
-            # Store this as the last topic and intent
-            self.conversation_manager.set_topic(message.strip().lower())
-            self.conversation_manager.set_intent(intent)
-        else:
-            logger.debug(f"Using existing intent for streaming follow-up: {self.current_intent}")
-            # For follow-up, if the message is very short (like just "embeddings"), use it as the topic
-            if len(message.split()) <= 2:
+        try:
+            # Always try to extract implicit user information from the message
+            logger.debug("Extracting implicit user information for streaming response")
+            self.info_collector.extract_user_info_from_message(message)
+            
+            # Check if this is a follow-up to the previous topic
+            is_followup = self.intent_manager.is_followup_question(
+                message, 
+                self.conversation_manager.chat_history
+            )
+            
+            # Determine intent
+            matched_keywords = []
+            if not is_followup or not self.current_intent:
+                logger.debug("Classifying new intent for streaming response")
+                # Classify the intent
+                intent_result = self.intent_manager.classify_intent(message)
+                intent = intent_result.get("intent", "UNKNOWN")
+                confidence = intent_result.get("confidence", 0.0)
+                matched_keywords = intent_result.get("matched_keywords", [])
+                
+                # For non-LLM topics, ensure we use the UNKNOWN intent to trigger fallback
+                if intent == "UNKNOWN":
+                    logger.info(f"Message classified as UNKNOWN with confidence {confidence}")
+                    # Generate fallback message for non-LLM topics
+                    complete_response = ""
+                    for chunk in self.response_generator.generate_fallback_message_streaming(
+                        message, 
+                        self.conversation_manager.chat_history,
+                        matched_keywords
+                    ):
+                        complete_response += chunk
+                        yield chunk
+                    
+                    # Add to history
+                    if complete_response:
+                        self.conversation_manager.add_ai_message(complete_response)
+                    self.conversation_manager.set_idle()
+                    return
+                
+                # Store as current intent for follow-up questions
+                self.current_intent = intent
+                
+                # Store this as the last topic and intent
                 self.conversation_manager.set_topic(message.strip().lower())
-            # Use the current intent for follow-up questions
-            intent = self.current_intent
-        
-        # Check if this could be a confirmation for the current conversation context
-        if is_confirmation(message) and len(message.split()) <= 3:
-            # If it looks like a confirmation but we're not specifically awaiting one,
-            # we'll still proceed with generating a response as a new query
-            logger.debug("Message looks like confirmation but not awaiting one, proceeding as new query for streaming")
-        
-        # Only check for additional info needs if we're not prioritizing the response
-        if not prioritize_response:
-            # Check if we need more information for this intent
-            needs_more_info, info_type_needed = self.info_collector.determine_if_more_info_needed(intent)
+                self.conversation_manager.set_intent(intent)
+            else:
+                logger.debug(f"Using existing intent for streaming follow-up: {self.current_intent}")
+                # For follow-up, if the message is very short (like just "embeddings"), use it as the topic
+                if len(message.split()) <= 2:
+                    self.conversation_manager.set_topic(message.strip().lower())
+                # Use the current intent for follow-up questions
+                intent = self.current_intent
             
-            if needs_more_info:
-                logger.info(f"Need more information for streaming intent {intent}: {info_type_needed}")
-                # Save the current query to resume after collecting info
-                self.conversation_manager.save_pending_query(message, intent, self.conversation_manager.get_topic())
-                
-                # Start collecting the needed information
-                self.info_collector.start_info_collection(info_type_needed)
-                info_msg = self.info_collector.get_info_collection_message(info_type_needed)
-                
-                # Add to history and yield
-                self.conversation_manager.add_ai_message(info_msg)
-                yield info_msg
-                return
+            # Check if this could be a confirmation for the current conversation context
+            if is_confirmation(message) and len(message.split()) <= 3:
+                # If it looks like a confirmation but we're not specifically awaiting one,
+                # we'll still proceed with generating a response as a new query
+                logger.debug("Message looks like confirmation but not awaiting one, proceeding as new query for streaming")
             
-            # Check if we have an opportunity to collect more user information
-            should_collect, attr_to_collect = self.info_collector.check_for_info_collection_opportunity()
+            # Only check for additional info needs if we're not prioritizing the response
+            if not prioritize_response:
+                # Check if we need more information for this intent
+                needs_more_info, info_type_needed = self.info_collector.determine_if_more_info_needed(intent)
+                
+                if needs_more_info:
+                    logger.info(f"Need more information for streaming intent {intent}: {info_type_needed}")
+                    # Save the current query to resume after collecting info
+                    self.conversation_manager.save_pending_query(message, intent, self.conversation_manager.get_topic())
+                    
+                    # Start collecting the needed information
+                    self.info_collector.start_info_collection(info_type_needed)
+                    info_msg = self.info_collector.get_info_collection_message(info_type_needed)
+                    
+                    # Add to history and yield
+                    self.conversation_manager.add_ai_message(info_msg)
+                    yield info_msg
+                    return
+                
+                # Check if we have an opportunity to collect more user information
+                should_collect, attr_to_collect = self.info_collector.check_for_info_collection_opportunity()
+                
+                if should_collect and attr_to_collect:
+                    logger.info(f"Opportunity to collect information for streaming: {attr_to_collect}")
+                    # Save the current query as pending
+                    self.conversation_manager.save_pending_query(message, intent, self.conversation_manager.get_topic())
+                    
+                    # Start collecting the information
+                    self.info_collector.start_info_collection(attr_to_collect)
+                    info_msg = self.info_collector.get_info_collection_message(attr_to_collect)
+                    
+                    # Add to history and yield
+                    self.conversation_manager.add_ai_message(info_msg)
+                    yield info_msg
+                    return
             
-            if should_collect and attr_to_collect:
-                logger.info(f"Opportunity to collect information for streaming: {attr_to_collect}")
-                # Save the current query as pending
-                self.conversation_manager.save_pending_query(message, intent, self.conversation_manager.get_topic())
+            # If we're here, we're proceeding with direct query response
+            logger.info(f"Prioritizing streaming response to query: {message[:50]}...")
+            
+            # Set state to processing and responding
+            self.conversation_manager.set_processing()
+            
+            # Manage chat history to avoid growing too large
+            self.conversation_manager.manage_chat_history()
+            
+            # Generate the streaming response
+            logger.debug(f"Generating streaming response for intent: {intent}")
+            complete_response = ""
+            for chunk in self.response_generator.generate_response_streaming(
+                message,
+                intent,
+                self.conversation_manager.chat_history,
+                self.user_profile,
+                self.conversation_manager.get_topic(),
+                matched_keywords
+            ):
+                complete_response += chunk
+                yield chunk
+            
+            # Add complete response to history
+            if complete_response:
+                self.conversation_manager.add_ai_message(complete_response)
+            
+            # Set state to idle
+            self.conversation_manager.set_idle()
+            
+        except Exception as e:
+            # If an error occurs during response generation, use the fallback
+            error_msg = f"Error in streaming query processing: {str(e)}"
+            logger.error(error_msg)
+            
+            # Set state to idle
+            self.conversation_manager.set_idle()
+            
+            # Try to generate a fallback message
+            try:
+                # Try to use the streaming fallback generator
+                for chunk in self.response_generator.generate_fallback_message_streaming(
+                    message, 
+                    self.conversation_manager.chat_history
+                ):
+                    yield chunk
+            except Exception as fallback_error:
+                # If even the fallback generation fails, provide a hardcoded message
+                logger.error(f"Error generating fallback: {str(fallback_error)}")
+                name = self.user_profile.get_attribute_value("name")
                 
-                # Start collecting the information
-                self.info_collector.start_info_collection(attr_to_collect)
-                info_msg = self.info_collector.get_info_collection_message(attr_to_collect)
+                if name:
+                    fallback_msg = (f"I apologize, {name}, but I couldn't process your request. "
+                                  "As a specialized LLM assistant, I can help with questions about language models, "
+                                  "embeddings, transformers, and other LLM topics. "
+                                  "Would you like to ask about one of these areas?")
+                else:
+                    fallback_msg = ("I apologize, but I couldn't process your request. "
+                                  "As a specialized LLM assistant, I can help with questions about language models, "
+                                  "embeddings, transformers, and other LLM topics. "
+                                  "Would you like to ask about one of these areas?")
                 
-                # Add to history and yield
-                self.conversation_manager.add_ai_message(info_msg)
-                yield info_msg
-                return
-        
-        # If we're here, we're proceeding with direct query response
-        logger.info(f"Prioritizing streaming response to query: {message[:50]}...")
-        
-        # Set state to processing and responding
-        self.conversation_manager.set_processing()
-        
-        # Manage chat history to avoid growing too large
-        self.conversation_manager.manage_chat_history()
-        
-        # Generate the streaming response
-        logger.debug(f"Generating streaming response for intent: {intent}")
-        complete_response = ""
-        for chunk in self.response_generator.generate_response_streaming(
-            message,
-            intent,
-            self.conversation_manager.chat_history,
-            self.user_profile,
-            self.conversation_manager.get_topic()
-        ):
-            complete_response += chunk
-            yield chunk
-        
-        # Add complete response to history
-        if complete_response:
-            self.conversation_manager.add_ai_message(complete_response)
-        
-        # Set state to idle
-        self.conversation_manager.set_idle()
+                yield fallback_msg
+                # Add to chat history
+                self.conversation_manager.add_ai_message(fallback_msg)

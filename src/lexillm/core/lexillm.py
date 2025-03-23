@@ -106,24 +106,8 @@ class LexiLLM:
                 self.conversation_manager
             )
             
-            # Create processor components
-            self.message_processor = MessageProcessor(
-                self.conversation_manager,
-                self.intent_manager,
-                self.response_generator,
-                self.info_collector,
-                self.profile_manager,
-                self.user_profile
-            )
-            
-            self.streaming_processor = StreamingProcessor(
-                self.conversation_manager,
-                self.intent_manager,
-                self.response_generator,
-                self.info_collector,
-                self.profile_manager,
-                self.user_profile
-            )
+            # Message processors are created on-demand to reduce initialization overhead
+            # and prevent circular imports
             
             # Keep track of the current intent
             self.current_intent = None
@@ -189,6 +173,18 @@ class LexiLLM:
                 self.user_profile
             )
         
+        # Create a message processor if it doesn't exist
+        if not hasattr(self, 'message_processor'):
+            from .message_processor import MessageProcessor
+            self.message_processor = MessageProcessor(
+                self.conversation_manager,
+                self.intent_manager,
+                self.response_generator,
+                self.info_collector,
+                self.profile_manager,
+                self.user_profile
+            )
+            
         # Delegate to message processor
         self.message_processor.current_intent = self.current_intent
         response, self.current_intent = self.message_processor.process(message)
@@ -230,6 +226,18 @@ class LexiLLM:
             self.conversation_manager.add_ai_message(complete_response)
             return
         
+        # Create a streaming processor if it doesn't exist
+        if not hasattr(self, 'streaming_processor'):
+            from .streaming_processor import StreamingProcessor
+            self.streaming_processor = StreamingProcessor(
+                self.conversation_manager,
+                self.intent_manager,
+                self.response_generator,
+                self.info_collector,
+                self.profile_manager,
+                self.user_profile
+            )
+            
         # Delegate to streaming processor
         self.streaming_processor.current_intent = self.current_intent
         

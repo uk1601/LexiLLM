@@ -15,6 +15,32 @@ class IntentClassifier(BaseModel):
         ge=0.0,
         le=1.0
     )
+    reasoning: str = Field(
+        description="Explanation of why this intent was selected", 
+        default=""
+    )
+    topics: list = Field(
+        description="List of relevant LLM topics in the query",
+        default_factory=list
+    )
+
+class DomainRelevance(BaseModel):
+    """Schema for determining if a query is related to LLMs."""
+    is_relevant: bool = Field(
+        description="Whether the query is related to LLMs or closely associated AI technologies"
+    )
+    confidence: float = Field(
+        description="Confidence level for the relevance assessment (0-1)",
+        ge=0.0,
+        le=1.0
+    )
+    related_topics: list = Field(
+        description="List of LLM topics the query relates to",
+        default_factory=list
+    )
+    reasoning: str = Field(
+        description="Explanation of the classification"
+    )
 
 class UserInfo(BaseModel):
     """Schema for extracting user information."""
