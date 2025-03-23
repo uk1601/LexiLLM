@@ -38,6 +38,20 @@ class StreamingProcessor:
         self.profile_manager = profile_manager
         self.user_profile = user_profile
         self.current_intent = None
+        
+        # Define patterns for direct questions and follow-ups
+        self.direct_question_indicators = [
+            "what is", "how do", "how does", "can you explain", "tell me about",
+            "what are", "how can", "why is", "when should", "where can",
+            "which", "who", "whose", "whom", "what about", "how about"
+        ]
+        
+        self.followup_patterns = [
+            "what about", "how about", "tell me more about", "elaborate on",
+            "can you expand", "more details", "latest", "recent", "newest",
+            "advancements", "developments", "progress", "updates", "improvements",
+            "new", "current", "modern", "trending", "popular", "state of the art"
+        ]
     
     def process(self, message: str) -> Iterator[str]:
         """
@@ -59,9 +73,24 @@ class StreamingProcessor:
             # Add the user's message to history
             self.conversation_manager.add_user_message(message)
             
-            # Get the current conversation state
-            current_state = self.conversation_manager.get_current_state()
-            logger.debug(f"Current conversation state for streaming: {current_state}")
+            # Check if this is a follow-up question about advancements or latest developments
+            is_followup, enriched_message = self._handle_followup_question(message)
+            if is_followup:
+                logger.info(f"Detected follow-up question about advancements/latest: {message}")
+                # Process the enriched message directly
+                message = enriched_message
+                # Generate streaming response with priority
+                for chunk in self._process_query(message, prioritize_response=True):
+                    yield chunk
+                return
+            
+            # Check if this is a direct question that should be prioritized
+            if self._is_direct_question(message):
+                logger.info(f"Detected direct question for streaming: {message}")
+                # Process the query with priority over information collection
+                for chunk in self._process_query(message, prioritize_response=True):
+                    yield chunk
+                return
             
             # Process based on conversation state
             if self.conversation_manager.is_awaiting_confirmation():
@@ -98,6 +127,75 @@ class StreamingProcessor:
             yield fallback_msg
             # Also add to chat history
             self.conversation_manager.add_ai_message(fallback_msg)
+            
+    def _is_direct_question(self, message: str) -> bool:
+        """
+        Check if the message is a direct question that should be prioritized.
+        
+        Args:
+            message: The user's message
+            
+        Returns:
+            True if this is a direct question
+        """
+        message_lower = message.lower().strip()
+        
+        # Check for question marks - strong indicator of a question
+        if message_lower.endswith("?"):
+            return True
+            
+        # Check for direct question indicators
+        for indicator in self.direct_question_indicators:
+            if message_lower.startswith(indicator):
+                return True
+                
+        return False
+        
+    def _handle_followup_question(self, message: str) -> Tuple[bool, str]:
+        """
+        Check if the message is a follow-up question to the previous topic,
+        particularly about advancements or latest developments.
+        
+        Args:
+            message: The user's message
+            
+        Returns:
+            Tuple of (is_followup, enriched_message)
+        """
+        message_lower = message.lower().strip()
+        
+        # Get the most recent topic discussed
+        previous_topic = self.conversation_manager.get_topic()
+        
+        # If no previous topic, it's not a follow-up
+        if not previous_topic:
+            return False, message
+            
+        # Check for follow-up patterns
+        is_followup = False
+        for pattern in self.followup_patterns:
+            if pattern in message_lower:
+                is_followup = True
+                break
+                
+        # If this looks like a follow-up, enrich the message with the previous topic
+        if is_followup:
+            # Determine if this is likely about "latest" or "advancements"
+            about_latest = any(word in message_lower for word in ["latest", "recent", "new", "current", "modern", "trending", "state of the art"])
+            about_advancements = any(word in message_lower for word in ["advancements", "developments", "progress", "updates", "improvements"])
+            
+            # Construct an enriched message that includes the previous context
+            if about_latest:
+                enriched_message = f"What are the latest developments in {previous_topic}?"
+            elif about_advancements:
+                enriched_message = f"What are the recent advancements and developments in {previous_topic}?"
+            else:
+                enriched_message = f"{message} regarding {previous_topic}"
+                
+            logger.debug(f"Enriched follow-up message: {enriched_message}")
+            return True, enriched_message
+            
+        return False, message
     
     def _handle_confirmation_state(self, message: str) -> Iterator[str]:
         """
@@ -162,7 +260,7 @@ class StreamingProcessor:
         self.conversation_manager.clear_confirmation()
         
         # Continue with normal processing (handled by the caller)
-        return
+        yield from self._process_query(message)
     
     def _handle_info_collection_state(self, message: str) -> Iterator[str]:
         """
@@ -189,11 +287,8 @@ class StreamingProcessor:
         pending_query = self.conversation_manager.get_pending_query()
         if pending_query:
             logger.info("Information collection complete, resuming pending query for streaming")
-            # Resume the pending query
+            # Resume the pending query immediately without confirmation
             self.conversation_manager.set_processing()
-            
-            # Check if the user's message is a simple confirmation
-            is_simple_confirmation = is_confirmation(message) and len(message.split()) <= 3
             
             # Use original topic from pending query, not the confirmation message
             topic = pending_query["topic"]
@@ -235,12 +330,13 @@ class StreamingProcessor:
                 yield response
                 return
     
-    def _process_query(self, message: str) -> Iterator[str]:
+    def _process_query(self, message: str, prioritize_response: bool = False) -> Iterator[str]:
         """
         Process a new query or follow-up question with streaming responses.
         
         Args:
             message: The user's message
+            prioritize_response: Whether to prioritize responding over info collection
             
         Yields:
             Response chunks
@@ -279,39 +375,44 @@ class StreamingProcessor:
             # we'll still proceed with generating a response as a new query
             logger.debug("Message looks like confirmation but not awaiting one, proceeding as new query for streaming")
         
-        # Check if we need more information for this intent
-        needs_more_info, info_type_needed = self.info_collector.determine_if_more_info_needed(intent)
+        # Only check for additional info needs if we're not prioritizing the response
+        if not prioritize_response:
+            # Check if we need more information for this intent
+            needs_more_info, info_type_needed = self.info_collector.determine_if_more_info_needed(intent)
+            
+            if needs_more_info:
+                logger.info(f"Need more information for streaming intent {intent}: {info_type_needed}")
+                # Save the current query to resume after collecting info
+                self.conversation_manager.save_pending_query(message, intent, self.conversation_manager.get_topic())
+                
+                # Start collecting the needed information
+                self.info_collector.start_info_collection(info_type_needed)
+                info_msg = self.info_collector.get_info_collection_message(info_type_needed)
+                
+                # Add to history and yield
+                self.conversation_manager.add_ai_message(info_msg)
+                yield info_msg
+                return
+            
+            # Check if we have an opportunity to collect more user information
+            should_collect, attr_to_collect = self.info_collector.check_for_info_collection_opportunity()
+            
+            if should_collect and attr_to_collect:
+                logger.info(f"Opportunity to collect information for streaming: {attr_to_collect}")
+                # Save the current query as pending
+                self.conversation_manager.save_pending_query(message, intent, self.conversation_manager.get_topic())
+                
+                # Start collecting the information
+                self.info_collector.start_info_collection(attr_to_collect)
+                info_msg = self.info_collector.get_info_collection_message(attr_to_collect)
+                
+                # Add to history and yield
+                self.conversation_manager.add_ai_message(info_msg)
+                yield info_msg
+                return
         
-        if needs_more_info:
-            logger.info(f"Need more information for streaming intent {intent}: {info_type_needed}")
-            # Save the current query to resume after collecting info
-            self.conversation_manager.save_pending_query(message, intent, self.conversation_manager.get_topic())
-            
-            # Start collecting the needed information
-            self.info_collector.start_info_collection(info_type_needed)
-            info_msg = self.info_collector.get_info_collection_message(info_type_needed)
-            
-            # Add to history and yield
-            self.conversation_manager.add_ai_message(info_msg)
-            yield info_msg
-            return
-        
-        # Check if we have an opportunity to collect more user information
-        should_collect, attr_to_collect = self.info_collector.check_for_info_collection_opportunity()
-        
-        if should_collect and attr_to_collect:
-            logger.info(f"Opportunity to collect information for streaming: {attr_to_collect}")
-            # Save the current query as pending
-            self.conversation_manager.save_pending_query(message, intent, self.conversation_manager.get_topic())
-            
-            # Start collecting the information
-            self.info_collector.start_info_collection(attr_to_collect)
-            info_msg = self.info_collector.get_info_collection_message(attr_to_collect)
-            
-            # Add to history and yield
-            self.conversation_manager.add_ai_message(info_msg)
-            yield info_msg
-            return
+        # If we're here, we're proceeding with direct query response
+        logger.info(f"Prioritizing streaming response to query: {message[:50]}...")
         
         # Set state to processing and responding
         self.conversation_manager.set_processing()
